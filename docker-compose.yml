@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # ─── Guardian Web App ─────────────────────────────────────────
+  guardian:
+    build:
+      context: .
+      dockerfile: Dockerfile.guardian
+    container_name: guardian-app
+    ports:
+      - "5002:5002"
+    environment:
+      - GUARDIAN_MONGO_URI=mongodb://mongo:27017/
+      - GUARDIAN_MONGO_DB=guardian
+      - GUARDIAN_KUIPER_URL=http://kuiper:9000
+      - GUARDIAN_DATA_DIR=/app/data
+      - GUARDIAN_RULES_DIR=/app/rules
+    volumes:
+      - guardian-data:/app/data
+      - guardian-rules:/app/rules
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    networks:
+      - guardian-net
+
+  # ─── MongoDB ──────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: guardian-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - guardian-net
+
+  # ─── Kuiper (Digital Forensics Platform) ──────────────────────
+  # Uncomment when ready to use Kuiper
+  kuiper:
+    image: dfirkuiper/kuiper:latest
+    container_name: guardian-kuiper
+    ports:
+      - "9000:9000"
+    volumes:
+      - kuiper-data:/app/data
+      - guardian-data:/shared/guardian:ro
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/
+    restart: unless-stopped
+    networks:
+      - guardian-net
+
+volumes:
+  guardian-data:
+  guardian-rules:
+  mongo-data:
+  kuiper-data:
+
+networks:
+  guardian-net:
+    driver: bridge

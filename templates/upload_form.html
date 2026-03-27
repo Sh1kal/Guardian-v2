@@ -1,0 +1,26 @@
+<!-- upload_form.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Evtx Upload</title>
+    <link rel="stylesheet" href="styles.css">	
+</head>
+<body>
+    <div class="container">
+        <h1>EVTX Upload</h1>
+        <form method="POST" action="/" enctype="multipart/form-data">
+            <label for="evtx_file">Upload EVTX file:</label>
+            <input type="file" name="evtx_file" id="evtx_file" webkitdirectory="" directory="" required>
+            <br>
+            <label for="rule_file">Select rule file:</label>
+            <select name="rule_file" id="rule_file" required>
+                {% for rule_file in rule_files %}
+                    <option value="{{ rule_file }}">{{ rule_file }}</option>
+                {% endfor %}
+            </select>
+            <br>
+            <input type="submit" value="Upload and Process">
+        </form>
+    </div>
+</body>
+</html>

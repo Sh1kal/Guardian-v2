@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.zip
+*.evtx
+*.jsonl
+*.csv
+data/
+hayabusa-2.8.0-all-platforms/
+Execution/
