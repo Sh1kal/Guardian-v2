@@ -124,8 +124,16 @@
                     </button>
                     {% endif %}
                     <button class="btn btn-outline" onclick="exportCase('{{ case.case_id }}')">
-                        📤 Export
+                        📤 Export ZIP
                     </button>
+                    {% if case.csv_ready %}
+                    <button class="btn btn-outline {{ 'btn-kuiper-ok' if kuiper_available else 'btn-kuiper-off' }}"
+                            onclick="pushToKuiper('{{ case.case_id }}')"
+                            id="btn-kuiper-{{ case.case_id }}"
+                            title="{{ 'Push timelines to Kuiper' if kuiper_available else 'Kuiper is not reachable' }}">
+                        🔍 Push to Kuiper
+                    </button>
+                    {% endif %}
                     <button class="btn btn-danger" onclick="deleteCase('{{ case.case_id }}')">
                         🗑️
                     </button>
@@ -422,7 +430,7 @@ function deleteCase(caseId) {
 }
 
 function exportCase(caseId) {
-    showToast('Preparing export...', 'info');
+    showToast('Preparing export…', 'info');
     // Trigger file download via form submission
     const form = document.createElement('form');
     form.method = 'POST';
@@ -430,6 +438,41 @@ function exportCase(caseId) {
     document.body.appendChild(form);
     form.submit();
     form.remove();
+}
+
+function pushToKuiper(caseId) {
+    const btn = document.getElementById(`btn-kuiper-${caseId}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Pushing…';
+    }
+    showToast('Pushing case to Kuiper…', 'info');
+
+    fetch(`/api/cases/${caseId}/push-to-kuiper`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const uploaded = (data.uploaded || []).length;
+                showToast(
+                    `✅ Pushed to Kuiper: ${uploaded} file(s) uploaded. Kuiper case: ${data.kuiper_case_id}`,
+                    'success'
+                );
+                if (btn) btn.textContent = '✅ Pushed';
+            } else {
+                showToast(`❌ Kuiper push failed: ${data.error}`, 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '🔍 Push to Kuiper';
+                }
+            }
+        })
+        .catch(err => {
+            showToast('❌ Kuiper push failed: network error', 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🔍 Push to Kuiper';
+            }
+        });
 }
 
 function launchKuiper() {

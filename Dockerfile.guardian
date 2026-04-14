@@ -19,6 +19,12 @@ COPY . /app
 # Create data directories
 RUN mkdir -p /app/data/cases /app/rules
 
+# Download the Zircolite Linux SIGMA ruleset so the container starts with
+# threat-detection rules ready.  The script exits 0 even if the download
+# fails (network not available during build) so the image still builds;
+# rules can be re-downloaded at runtime via the same script.
+RUN bash /app/bin/download_rules.sh /app/rules || true
+
 # Expose port
 EXPOSE 5002
 

@@ -26,6 +26,11 @@ MONGO_DB_NAME = os.environ.get("GUARDIAN_MONGO_DB", "guardian")
 
 # Kuiper
 KUIPER_URL = os.environ.get("GUARDIAN_KUIPER_URL", "http://localhost:9000")
+# Kuiper REST API base URL – defaults to the standard v1 path on the same host
+KUIPER_API_URL = os.environ.get(
+    "GUARDIAN_KUIPER_API_URL",
+    os.environ.get("GUARDIAN_KUIPER_URL", "http://localhost:9000").rstrip("/") + "/api/v1",
+)
 
 # Flask
 SECRET_KEY = os.environ.get("GUARDIAN_SECRET_KEY", "guardian-secret-change-me")
