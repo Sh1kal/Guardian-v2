@@ -225,7 +225,7 @@ def push_to_kuiper(case_dir: str, case_id: str, case_name: str) -> dict:
         "machine_id": machine_id,
         "uploaded": uploaded,
         "errors": errors,
-        "kuiper_url": f"{config.KUIPER_URL}",
+        "kuiper_url": config.KUIPER_URL,
     }
 
 

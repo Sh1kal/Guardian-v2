@@ -533,9 +533,7 @@ def push_case_to_kuiper(case_id):
         return jsonify(result), 200 if result["success"] else 502
     except Exception as e:
         logger.error(f"Push-to-Kuiper error: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
+        return jsonify({"success": False, "error": "Internal error during Kuiper push"}), 500
 
 
 @app.route('/api/cases/<case_id>', methods=['GET'])
