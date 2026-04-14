@@ -24,7 +24,7 @@ from guardian import config
 from guardian.ingest import ingest_zip, IngestError
 from guardian.processing import generate_all_csvs, ProcessingError
 from guardian.analysis import run_zircolite, run_heuristic_analysis, AnalysisError
-from guardian.investigation import check_kuiper_status, export_case_for_kuiper, get_kuiper_url
+from guardian.investigation import check_kuiper_status, export_case_for_kuiper, push_to_kuiper, get_kuiper_url
 
 # ─── App Setup ────────────────────────────────────────────────────────────────
 
@@ -108,6 +108,37 @@ def load_cases():
                         "analysis_ready": os.path.isdir(os.path.join(case_dir, "analysis")),
                     }
 
+    # Reconstruct full artifact paths from rel_path + extracted directory.
+    # persist_case_meta stores rel_path; without this step CSV generation
+    # silently produces empty output after a server restart.
+    for case_id, case in _cases.items():
+        case_dir = case.get("case_dir", "")
+        if not case_dir:
+            continue
+        extract_dir = os.path.join(case_dir, "extracted")
+        artifacts = case.get("artifacts", {})
+        for cat, files in artifacts.items():
+            for file_info in files:
+                # Already has a valid path from this session (e.g. just ingested)
+                if file_info.get("path") and os.path.isfile(file_info["path"]):
+                    continue
+                rel_path = file_info.get("rel_path", "")
+                filename = file_info.get("filename", "")
+                if rel_path:
+                    full_path = os.path.join(extract_dir, rel_path)
+                    if os.path.isfile(full_path):
+                        file_info["path"] = full_path
+                        continue
+                # Fallback: search the extracted tree for the filename
+                if filename and os.path.isdir(extract_dir):
+                    for root, _dirs, fnames in os.walk(extract_dir):
+                        if filename in fnames:
+                            file_info["path"] = os.path.join(root, filename)
+                            file_info["rel_path"] = os.path.relpath(
+                                file_info["path"], extract_dir
+                            )
+                            break
+
 
 def persist_case_meta(case_meta: dict):
     """Write case metadata to a JSON file for filesystem persistence."""
@@ -118,11 +149,16 @@ def persist_case_meta(case_meta: dict):
         safe_meta = {}
         for k, v in case_meta.items():
             if k == "artifacts":
-                # Simplify artifacts for JSON
+                # Preserve filename, rel_path, size_bytes so paths can be
+                # reconstructed after a server restart.
                 safe_artifacts = {}
                 for cat, files in v.items():
                     safe_artifacts[cat] = [
-                        {"filename": f.get("filename", ""), "size_bytes": f.get("size_bytes", 0)}
+                        {
+                            "filename": f.get("filename", ""),
+                            "rel_path": f.get("rel_path", ""),
+                            "size_bytes": f.get("size_bytes", 0),
+                        }
                         for f in files
                     ]
                 safe_meta[k] = safe_artifacts
@@ -471,7 +507,36 @@ def kuiper_status():
     return jsonify(status)
 
 
-# ─── Routes: Case Management ─────────────────────────────────────────────────
+@app.route('/api/cases/<case_id>/push-to-kuiper', methods=['POST'])
+def push_case_to_kuiper(case_id):
+    """Push case CSV timelines directly to Kuiper via its REST API."""
+    case = get_case(case_id)
+    if not case:
+        return jsonify({"success": False, "error": "Case not found"}), 404
+
+    case_dir = case.get("case_dir", "")
+    case_name = case.get("case_name", case_id)
+
+    if not case.get("csv_ready"):
+        return jsonify({
+            "success": False,
+            "error": "CSV timeline is not ready yet. Generate CSV first.",
+        }), 400
+
+    try:
+        result = push_to_kuiper(case_dir, case_id, case_name)
+        if result["success"]:
+            # Record the Kuiper case id for reference
+            case["kuiper_case_id"] = result.get("kuiper_case_id")
+            save_case(case)
+            persist_case_meta(case)
+        return jsonify(result), 200 if result["success"] else 502
+    except Exception as e:
+        logger.error(f"Push-to-Kuiper error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
 
 @app.route('/api/cases/<case_id>', methods=['GET'])
 def get_case_info(case_id):

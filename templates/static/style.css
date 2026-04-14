@@ -729,3 +729,19 @@ h1#app-title {
         font-size: 22px;
     }
 }
+
+/* ─── Kuiper Push Button States ─────────────────────────────────── */
+.btn-kuiper-ok {
+    border-color: var(--accent-purple);
+    color: var(--accent-purple);
+}
+.btn-kuiper-ok:hover {
+    background: rgba(179, 136, 255, 0.15);
+    border-color: var(--accent-purple);
+}
+.btn-kuiper-off {
+    border-color: var(--text-muted);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+}

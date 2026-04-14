@@ -13,6 +13,7 @@ services:
       - GUARDIAN_MONGO_URI=mongodb://mongo:27017/
       - GUARDIAN_MONGO_DB=guardian
       - GUARDIAN_KUIPER_URL=http://kuiper:9000
+      - GUARDIAN_KUIPER_API_URL=http://kuiper:9000/api/v1
       - GUARDIAN_DATA_DIR=/app/data
       - GUARDIAN_RULES_DIR=/app/rules
     volumes:

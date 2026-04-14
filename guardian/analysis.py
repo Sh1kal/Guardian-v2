@@ -45,25 +45,40 @@ def find_jsonl_files(extract_dir: str) -> list:
 def run_zircolite(case_dir: str, artifacts: dict) -> dict:
     """
     Run Zircolite on JSONL artifacts using --jsononly mode.
-    
-    Zircolite supports:
-    - --events <folder_or_file> : input events
-    - --jsononly : for JSONL/NDJSON input
-    - --ruleset <rules.json> : SIGMA rules
-    - -o <output.json> : output file
-    
+
+    NOTE: Zircolite's --jsononly mode expects Windows-event-style JSONL
+    (fields like EventID, Channel, etc.).  Fennec produces Linux forensic
+    JSONL that does NOT match those fields, so SIGMA rules will never fire
+    against raw Fennec output.  The function therefore goes straight to the
+    heuristic engine whenever:
+      - the Zircolite script is missing, OR
+      - the Linux SIGMA ruleset has not been populated.
+
+    If both are present the Zircolite path is attempted as a best-effort
+    pass; any failure still falls back to heuristics so the pipeline never
+    stalls.
+
     Returns analysis results dict.
     """
     extract_dir = os.path.join(case_dir, "extracted")
     analysis_dir = os.path.join(case_dir, "analysis")
     os.makedirs(analysis_dir, exist_ok=True)
 
-    # Check prerequisites
+    # Fast-path: skip Zircolite when prerequisites are absent.
+    # This is the common case for Fennec archives.
     if not check_zircolite_available():
-        logger.warning("Zircolite not found, falling back to heuristic analysis")
+        logger.info("Zircolite not found – running heuristic analysis")
         return run_heuristic_analysis(case_dir, artifacts)
 
-    # Find JSONL files
+    if not check_rules_available():
+        logger.info(
+            "Linux SIGMA ruleset not found – running heuristic analysis. "
+            "To enable Zircolite detection, populate rules/rules_linux.json "
+            "(see bin/download_rules.sh)."
+        )
+        return run_heuristic_analysis(case_dir, artifacts)
+
+    # Both Zircolite and rules are present – attempt SIGMA detection.
     jsonl_files = find_jsonl_files(extract_dir)
     if not jsonl_files:
         raise AnalysisError("No JSONL files found for analysis")
@@ -72,22 +87,14 @@ def run_zircolite(case_dir: str, artifacts: dict) -> dict:
     log_file = os.path.join(analysis_dir, "zircolite.log")
 
     # Build Zircolite command
-    # Use --jsononly for JSONL files, point to the extract directory
     cmd = [
         "python3", config.ZIRCOLITE_PATH,
         "--events", extract_dir,
         "--jsononly",
+        "--ruleset", config.ZIRCOLITE_LINUX_RULES,
         "-o", output_file,
         "-l", log_file,
     ]
-
-    # Add ruleset if available
-    if check_rules_available():
-        cmd.extend(["--ruleset", config.ZIRCOLITE_LINUX_RULES])
-    else:
-        logger.warning("No Linux SIGMA ruleset found. Attempting without specific rules.")
-        # Without rules, Zircolite won't detect much - do heuristic instead
-        return run_heuristic_analysis(case_dir, artifacts)
 
     # Also generate Zircolite GUI output if template exists
     if os.path.isfile(config.ZIRCOLITE_TEMPLATE):
