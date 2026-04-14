@@ -94,8 +94,8 @@
                         <span class="step-label">Analysis</span>
                     </div>
                     <div class="step-arrow">→</div>
-                    <div class="step pending">
-                        <span class="step-icon">🔍</span>
+                    <div class="step {{ 'done' if case.kuiper_case_id else 'pending' }}" id="step-investigate-{{ case.case_id }}">
+                        <span class="step-icon">{{ '✅' if case.kuiper_case_id else '🔍' }}</span>
                         <span class="step-label">Investigate</span>
                     </div>
                 </div>
@@ -127,12 +127,21 @@
                         📤 Export ZIP
                     </button>
                     {% if case.csv_ready %}
+                    {% if case.kuiper_case_id %}
+                    <button class="btn btn-outline btn-kuiper-ok" disabled>
+                        ✅ Pushed to Kuiper
+                    </button>
+                    <a class="btn btn-outline btn-kuiper-ok" href="{{ kuiper_url }}" target="_blank">
+                        🔗 Open in Kuiper
+                    </a>
+                    {% else %}
                     <button class="btn btn-outline {{ 'btn-kuiper-ok' if kuiper_available else 'btn-kuiper-off' }}"
                             onclick="pushToKuiper('{{ case.case_id }}')"
                             id="btn-kuiper-{{ case.case_id }}"
                             title="{{ 'Push timelines to Kuiper' if kuiper_available else 'Kuiper is not reachable' }}">
                         🔍 Push to Kuiper
                     </button>
+                    {% endif %}
                     {% endif %}
                     <button class="btn btn-danger" onclick="deleteCase('{{ case.case_id }}')">
                         🗑️
@@ -457,7 +466,20 @@ function pushToKuiper(caseId) {
                     `✅ Pushed to Kuiper: ${uploaded} file(s) uploaded. Kuiper case: ${data.kuiper_case_id}`,
                     'success'
                 );
-                if (btn) btn.textContent = '✅ Pushed';
+                // Replace push button with "Pushed" + "Open in Kuiper" link
+                if (btn) {
+                    btn.outerHTML =
+                        `<button class="btn btn-outline btn-kuiper-ok" disabled>✅ Pushed to Kuiper</button>` +
+                        `<a class="btn btn-outline btn-kuiper-ok" href="${KUIPER_URL}" target="_blank">🔗 Open in Kuiper</a>`;
+                }
+                // Mark Investigate pipeline step as done
+                const stepEl = document.getElementById(`step-investigate-${caseId}`);
+                if (stepEl) {
+                    stepEl.classList.remove('pending');
+                    stepEl.classList.add('done');
+                    const icon = stepEl.querySelector('.step-icon');
+                    if (icon) icon.textContent = '✅';
+                }
             } else {
                 showToast(`❌ Kuiper push failed: ${data.error}`, 'error');
                 if (btn) {
