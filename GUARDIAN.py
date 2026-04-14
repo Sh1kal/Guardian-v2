@@ -135,6 +135,85 @@ def persist_case_meta(case_meta: dict):
             logger.warning(f"Failed to persist case meta: {e}")
 
 
+def _run_pipeline_background(case_id: str):
+    """
+    Background thread: automatically run CSV generation then threat analysis
+    after a successful upload so the full pipeline fires without manual steps.
+    Updates case status at each stage so the UI reflects progress.
+    """
+    case = get_case(case_id)
+    if not case:
+        return
+
+    case_dir = case.get("case_dir", "")
+    artifacts = case.get("artifacts", {})
+
+    if not artifacts:
+        logger.warning(f"Case {case_id}: no artifacts found, skipping auto-pipeline")
+        case["status"] = "extracted"
+        case["processing_step"] = "No artifacts found"
+        save_case(case)
+        return
+
+    # ── Step 1: CSV generation ──────────────────────────────────────
+    try:
+        case["status"] = "processing"
+        case["processing_step"] = "Generating CSV timeline"
+        save_case(case)
+
+        results = generate_all_csvs(case_dir, artifacts)
+
+        case["csv_ready"] = True
+        case["csv_results"] = {
+            "timeline_rows": results["timeline_rows"],
+            "total_csvs": results["total_csvs"],
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+        case["status"] = "csv_ready"
+        case["processing_step"] = "CSV ready"
+        save_case(case)
+        persist_case_meta(case)
+        logger.info(
+            f"Case {case_id}: CSV generation complete "
+            f"({results['timeline_rows']} rows, {results['total_csvs']} files)"
+        )
+    except Exception as e:
+        logger.error(f"Case {case_id}: CSV generation failed: {e}", exc_info=True)
+        case["status"] = "error"
+        case["processing_step"] = f"CSV generation failed: {e}"
+        save_case(case)
+        return
+
+    # ── Step 2: Threat analysis ─────────────────────────────────────
+    try:
+        case["status"] = "analyzing"
+        case["processing_step"] = "Running threat analysis"
+        save_case(case)
+
+        results = run_zircolite(case_dir, artifacts)
+
+        case["analysis_ready"] = True
+        case["analysis_results"] = {
+            "engine": results["engine"],
+            "detected_count": results["detected_count"],
+            "analyzed_at": datetime.utcnow().isoformat(),
+        }
+        case["status"] = "analyzed"
+        case["processing_step"] = "Complete"
+        save_case(case)
+        persist_case_meta(case)
+        logger.info(
+            f"Case {case_id}: analysis complete "
+            f"({results['detected_count']} findings via {results['engine']})"
+        )
+    except Exception as e:
+        logger.error(f"Case {case_id}: analysis failed: {e}", exc_info=True)
+        # CSV is still good — downgrade status rather than marking as error
+        case["status"] = "csv_ready"
+        case["processing_step"] = f"Analysis failed: {e}"
+        save_case(case)
+
+
 def get_case(case_id: str) -> dict:
     """Get case by ID."""
     return _cases.get(case_id)
@@ -196,6 +275,15 @@ def upload_file():
         case_meta = ingest_zip(file, filename, mongo_fs=fs)
         save_case(case_meta)
         persist_case_meta(case_meta)
+
+        # Auto-trigger full pipeline in background so the user doesn't need
+        # to manually click "Generate CSV" and "Run Analysis".
+        pipeline_thread = threading.Thread(
+            target=_run_pipeline_background,
+            args=(case_meta["case_id"],),
+            daemon=True,
+        )
+        pipeline_thread.start()
 
         return jsonify({
             "success": True,
@@ -456,8 +544,9 @@ def case_status(case_id):
         "success": True,
         "case_id": case_id,
         "status": case.get("status", "unknown"),
-        "uploaded": case.get("status") in ["uploaded", "extracted", "csv_ready", "analyzed"],
-        "extracted": case.get("status") in ["extracted", "csv_ready", "analyzed"],
+        "processing_step": case.get("processing_step", ""),
+        "uploaded": case.get("status") in ["uploaded", "extracted", "processing", "csv_ready", "analyzing", "analyzed"],
+        "extracted": case.get("status") in ["extracted", "processing", "csv_ready", "analyzing", "analyzed"],
         "csv_ready": case.get("csv_ready", False),
         "analysis_ready": case.get("analysis_ready", False),
         "csv_exists": os.path.isfile(os.path.join(case_dir, "csv", "unified_timeline.csv")),
