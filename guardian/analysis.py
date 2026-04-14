@@ -227,23 +227,28 @@ def run_heuristic_analysis(case_dir: str, artifacts: dict) -> dict:
 
 
 def _read_jsonl(extract_dir: str, filename: str) -> list:
-    """Helper to read a JSONL file from the extract directory."""
-    fpath = os.path.join(extract_dir, filename)
-    if not os.path.isfile(fpath):
-        return []
-    records = []
-    try:
-        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-    except Exception:
-        pass
-    return records
+    """Helper to read a JSONL file from the extract directory.
+
+    Searches recursively so Fennec archives with a top-level subdirectory
+    (e.g. ``hostname_20231001/process_list.jsonl``) are found correctly.
+    """
+    for root, _dirs, files in os.walk(extract_dir):
+        if filename in files:
+            fpath = os.path.join(root, filename)
+            records = []
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                records.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+            except Exception:
+                pass
+            return records
+    return []
 
 
 def _check_suid_bins(extract_dir: str) -> list:

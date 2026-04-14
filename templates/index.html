@@ -79,18 +79,18 @@
 
                 <!-- Pipeline Steps -->
                 <div class="pipeline-steps">
-                    <div class="step {{ 'done' if case.status in ['extracted','csv_ready','analyzed'] else 'pending' }}">
+                    <div class="step {{ 'done' if case.status in ['extracted','processing','csv_ready','analyzing','analyzed'] else 'pending' }}">
                         <span class="step-icon">✅</span>
                         <span class="step-label">Uploaded</span>
                     </div>
                     <div class="step-arrow">→</div>
-                    <div class="step {{ 'done' if case.csv_ready else 'pending' }}" id="step-csv-{{ case.case_id }}">
-                        <span class="step-icon">{{ '✅' if case.csv_ready else '⏳' }}</span>
+                    <div class="step {{ 'done' if case.csv_ready else ('active' if case.status in ['processing'] else 'pending') }}" id="step-csv-{{ case.case_id }}">
+                        <span class="step-icon">{{ '✅' if case.csv_ready else ('⚙️' if case.status in ['processing'] else '⏳') }}</span>
                         <span class="step-label">CSV</span>
                     </div>
                     <div class="step-arrow">→</div>
-                    <div class="step {{ 'done' if case.analysis_ready else 'pending' }}" id="step-analysis-{{ case.case_id }}">
-                        <span class="step-icon">{{ '✅' if case.analysis_ready else '⏳' }}</span>
+                    <div class="step {{ 'done' if case.analysis_ready else ('active' if case.status in ['analyzing'] else 'pending') }}" id="step-analysis-{{ case.case_id }}">
+                        <span class="step-icon">{{ '✅' if case.analysis_ready else ('⚙️' if case.status in ['analyzing'] else '⏳') }}</span>
                         <span class="step-label">Analysis</span>
                     </div>
                     <div class="step-arrow">→</div>
@@ -99,6 +99,11 @@
                         <span class="step-label">Investigate</span>
                     </div>
                 </div>
+                {% if case.status in ['processing', 'analyzing'] %}
+                <div class="pipeline-progress-note" id="progress-note-{{ case.case_id }}">
+                    ⚙️ <em>{{ case.processing_step or 'Processing…' }}</em>
+                </div>
+                {% endif %}
 
                 <!-- Action Buttons -->
                 <div class="case-actions">
@@ -435,6 +440,43 @@ function launchKuiper() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeModal();
 });
+
+// ─── Auto-refresh while cases are processing ─────────────────────
+// Poll every 4 seconds for any case card that shows "processing" or
+// "analyzing" status and reload the page once all are done.
+(function startPolling() {
+    const POLL_INTERVAL_MS = 4000;  // 4 s — fast enough to feel responsive without hammering the server
+    const processingCards = document.querySelectorAll('.pipeline-progress-note');
+    if (processingCards.length === 0) return;  // nothing in-flight
+
+    const caseIds = Array.from(processingCards).map(el => el.id.replace('progress-note-', ''));
+
+    function checkAll() {
+        const checks = caseIds.map(id =>
+            fetch(`/api/cases/${id}/status`).then(r => r.json()).catch(() => null)
+        );
+        Promise.all(checks).then(results => {
+            const allDone = results.every(
+                r => r && !['processing', 'analyzing'].includes(r.status)
+            );
+            if (allDone) {
+                location.reload();
+            } else {
+                // Update in-progress notes without a full reload
+                results.forEach((r, i) => {
+                    if (!r) return;
+                    const note = document.getElementById(`progress-note-${caseIds[i]}`);
+                    if (note && r.processing_step) {
+                        note.innerHTML = `⚙️ <em>${r.processing_step}</em>`;
+                    }
+                });
+                setTimeout(checkAll, POLL_INTERVAL_MS);
+            }
+        });
+    }
+
+    setTimeout(checkAll, POLL_INTERVAL_MS);
+})();
 </script>
 
 </body>

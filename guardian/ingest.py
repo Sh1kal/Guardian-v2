@@ -6,6 +6,7 @@ import os
 import uuid
 import zipfile
 import shutil
+import subprocess
 import logging
 from datetime import datetime
 
@@ -83,6 +84,47 @@ def create_case(original_filename: str) -> dict:
     return case_meta
 
 
+def _extract_with_system_tool(zip_path: str, extract_dir: str) -> bool:
+    """
+    Fall back to system ``unzip`` or ``7z`` when Python's zipfile module cannot
+    handle the compression method (e.g. deflate64, method 9).
+
+    Returns True on success, False if no suitable tool is available or all fail.
+    """
+    os.makedirs(extract_dir, exist_ok=True)
+
+    # Try unzip first (widely available on Linux)
+    if shutil.which("unzip"):
+        try:
+            result = subprocess.run(
+                ["unzip", "-o", zip_path, "-d", extract_dir],
+                capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode == 0:
+                logger.info("Extracted ZIP using system unzip")
+                return True
+            logger.warning(f"unzip exited with code {result.returncode}: {result.stderr[:200]}")
+        except Exception as e:
+            logger.warning(f"unzip failed: {e}")
+
+    # Try 7z / 7za as a second option
+    for tool in ("7z", "7za"):
+        if shutil.which(tool):
+            try:
+                result = subprocess.run(
+                    [tool, "x", zip_path, f"-o{extract_dir}", "-y"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode == 0:
+                    logger.info(f"Extracted ZIP using {tool}")
+                    return True
+                logger.warning(f"{tool} exited with code {result.returncode}: {result.stderr[:200]}")
+            except Exception as e:
+                logger.warning(f"{tool} failed: {e}")
+
+    return False
+
+
 def extract_zip(zip_path: str, case_dir: str) -> dict:
     """
     Safely extract a ZIP file into the case's extracted/ directory.
@@ -95,6 +137,18 @@ def extract_zip(zip_path: str, case_dir: str) -> dict:
             zf.extractall(extract_dir)
     except zipfile.BadZipFile as e:
         raise IngestError(f"Failed to extract ZIP: {e}")
+    except NotImplementedError:
+        # Python's zipfile doesn't support all compression methods (e.g. deflate64).
+        # Fall back to a system tool that can handle them.
+        logger.warning(
+            "Python zipfile cannot handle the compression method in this archive "
+            "(possibly deflate64). Trying system extraction tools."
+        )
+        if not _extract_with_system_tool(zip_path, extract_dir):
+            raise IngestError(
+                "ZIP uses an unsupported compression method (e.g. deflate64) and no "
+                "compatible extraction tool (unzip, 7z) is available on the system."
+            )
     except Exception as e:
         raise IngestError(f"Extraction error: {e}")
 
